@@ -132,6 +132,18 @@ class NF2Module(LightningModule):
             loss_modules.update(loss_module)
         return loss_modules, lambdas, scheduled_lambdas
 
+    def forward(self, coords):
+        """
+        Forward pass through the neural field model.
+
+        Args:
+            coords (torch.Tensor): Input coordinates tensor
+
+        Returns:
+            dict: Model output dictionary containing predictions
+        """
+        return self.model(coords)
+
     def configure_optimizers(self):
         parameters = list(self.model.parameters())
         parameters += list(self.transform_modules.parameters())
