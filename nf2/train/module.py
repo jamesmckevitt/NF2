@@ -225,6 +225,7 @@ class NF2Module(LightningModule):
 
     @torch.no_grad()
     def on_train_batch_end(self, outputs, batch, batch_idx) -> None:
+        print(f"[DEBUG] NF2Module.on_train_batch_end called at batch_idx {batch_idx}")
         # update lambda parameters and log
         for k in self.scheduled_lambdas.keys():
             param = self.lambdas[k]

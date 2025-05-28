@@ -11,18 +11,27 @@ def load_callbacks(data_module, additional_callbacks=[]):
     callbacks = []
     Mm_per_ds = data_module.config['Mm_per_ds']
     G_per_dB = data_module.config['G_per_dB']
+    print(f"[DEBUG] load_callbacks called")
     if hasattr(data_module, 'training_datasets') and hasattr(data_module, 'config'):
         random_config = getattr(data_module, 'random_config', getattr(data_module, 'config', {})).get('random_config', {})
+        print(f"[DEBUG] random_config: {random_config}")
         if random_config.get('current_biased_sampling', False):
+            print(f"[DEBUG] current_biased_sampling is True")
             random_dataset = data_module.training_datasets.get('random', None)
+            print(f"[DEBUG] random_dataset: {random_dataset}")
             if random_dataset is not None:
-                callbacks.append(
-                    CurrentResampleCallback(
-                        dataset=random_dataset,
-                        interval=random_config.get('current_resample_interval', 1000),
-                        device='cuda' if torch.cuda.is_available() else 'cpu'
-                    )
+                print(f"[DEBUG] Creating CurrentResampleCallback with interval {random_config.get('current_resample_interval', 1000)}")
+                callback = CurrentResampleCallback(
+                    dataset=random_dataset,
+                    interval=random_config.get('current_resample_interval', 1000),
+                    device='cuda' if torch.cuda.is_available() else 'cpu'
                 )
+                callbacks.append(callback)
+                print(f"[DEBUG] CurrentResampleCallback created and appended: {callback}")
+            else:
+                print(f"[DEBUG] random_dataset is None")
+        else:
+            print(f"[DEBUG] current_biased_sampling is False or not found")
     for validation_dataset_key in data_module.validation_dataset_mapping.values():
         ds = data_module.validation_datasets[validation_dataset_key]
         for callback_config in additional_callbacks:
@@ -50,4 +59,5 @@ def load_callbacks(data_module, additional_callbacks=[]):
         else:
             raise NotImplementedError(f'Data set {type(ds)} not implemented for validation.')
         callbacks += [callback]
+    print(f"[DEBUG] Returning {len(callbacks)} callbacks: {[type(c).__name__ for c in callbacks]}")
     return callbacks
