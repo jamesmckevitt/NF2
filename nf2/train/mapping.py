@@ -3,13 +3,26 @@ from nf2.loader.base import MapDataset
 from nf2.loader.fits import FITSDataset
 from nf2.loader.spherical import SphericalSliceDataset
 from nf2.train.callback import SphericalSlicesCallback, SlicesCallback, MetricsCallback, BoundaryCallback, \
-    LosTrvAziBoundaryCallback, DisambiguationCallback
+    LosTrvAziBoundaryCallback, DisambiguationCallback, CurrentResampleCallback
+import torch
 
 
 def load_callbacks(data_module, additional_callbacks=[]):
     callbacks = []
     Mm_per_ds = data_module.config['Mm_per_ds']
     G_per_dB = data_module.config['G_per_dB']
+    if hasattr(data_module, 'training_datasets') and hasattr(data_module, 'config'):
+        random_config = getattr(data_module, 'random_config', getattr(data_module, 'config', {})).get('random_config', {})
+        if random_config.get('current_biased_sampling', False):
+            random_dataset = data_module.training_datasets.get('random', None)
+            if random_dataset is not None:
+                callbacks.append(
+                    CurrentResampleCallback(
+                        dataset=random_dataset,
+                        interval=random_config.get('current_resample_interval', 1000),
+                        device='cuda' if torch.cuda.is_available() else 'cpu'
+                    )
+                )
     for validation_dataset_key in data_module.validation_dataset_mapping.values():
         ds = data_module.validation_datasets[validation_dataset_key]
         for callback_config in additional_callbacks:

@@ -202,7 +202,14 @@ class SlicesDataset(Dataset):
 
 class RandomCoordinateDataset(Dataset):
 
-    def __init__(self, coord_range, batch_size=2 ** 14, buffer=None, z_sampling_exponent=1):
+    def __init__(self, coord_range, batch_size=2 ** 14, buffer=None, z_sampling_exponent=1, current_density_map=None, current_biased_sampling=False, current_resample_interval=1000, bias_fraction=1.0, **kwargs):
+        # Set defaults if not provided
+        if current_biased_sampling is None:
+            current_biased_sampling = False
+        if current_resample_interval is None:
+            current_resample_interval = 1000
+        if bias_fraction is None:
+            bias_fraction = 1.0
         super().__init__()
         if buffer:
             buffer_x = (coord_range[0, 1] - coord_range[0, 0]) * buffer
@@ -215,17 +222,64 @@ class RandomCoordinateDataset(Dataset):
         self.batch_size = int(batch_size)
         self.float_tensor = torch.FloatTensor
         self.z_sampling_exponent = torch.tensor(z_sampling_exponent, dtype=torch.float32)
+        self.current_density_map = current_density_map
+        self.current_biased_sampling = current_biased_sampling
+        self.current_resample_interval = current_resample_interval
+        self.bias_fraction = bias_fraction
+        self._step = 0
+        if self.current_biased_sampling and self.current_density_map is not None:
+            self._update_prob_map()
+
+    def _update_prob_map(self):
+        # Flatten and normalize the probability map
+        prob = self.current_density_map.flatten()
+        prob = prob / np.sum(prob)
+        self._prob = prob
+        self._shape = self.current_density_map.shape
 
     def __len__(self):
         return 1
 
     def __getitem__(self, item):
-        random_coords = self.float_tensor(self.batch_size, 3).uniform_()
-        random_coords[:, 0] = (
+        if self.current_biased_sampling and self.current_density_map is not None and self.bias_fraction > 0:
+            # Resample probability map at interval
+            if self._step % self.current_resample_interval == 0:
+                self._update_prob_map()
+            self._step += 1
+            n_biased = int(self.batch_size * self.bias_fraction)
+            n_uniform = self.batch_size - n_biased
+            coords_list = []
+            # Biased sampling
+            if n_biased > 0:
+                idxs = np.random.choice(np.arange(self._prob.size), size=n_biased, p=self._prob)
+                x_idx, y_idx = np.unravel_index(idxs, self._shape)
+                z = np.random.uniform(self.coord_range[2, 0], self.coord_range[2, 1], n_biased)
+                x = x_idx / (self._shape[0] - 1) * (self.coord_range[0, 1] - self.coord_range[0, 0]) + self.coord_range[0, 0]
+                y = y_idx / (self._shape[1] - 1) * (self.coord_range[1, 1] - self.coord_range[1, 0]) + self.coord_range[1, 0]
+                coords_biased = np.stack([x, y, z], axis=1)
+                coords_list.append(coords_biased)
+            # Uniform sampling
+            if n_uniform > 0:
+                random_coords = self.float_tensor(n_uniform, 3).uniform_().numpy()
+                random_coords[:, 0] = (
                     random_coords[:, 0] * (self.coord_range[0, 1] - self.coord_range[0, 0]) + self.coord_range[0, 0])
-        random_coords[:, 1] = (
+                random_coords[:, 1] = (
                     random_coords[:, 1] * (self.coord_range[1, 1] - self.coord_range[1, 0]) + self.coord_range[1, 0])
-        random_coords[:, 2] = random_coords[:, 2] ** self.z_sampling_exponent
-        random_coords[:, 2] = (
+                random_coords[:, 2] = random_coords[:, 2] ** self.z_sampling_exponent.item()
+                random_coords[:, 2] = (
                     random_coords[:, 2] * (self.coord_range[2, 1] - self.coord_range[2, 0]) + self.coord_range[2, 0])
-        return {'coords': random_coords}
+                coords_list.append(random_coords)
+            coords = np.concatenate(coords_list, axis=0)
+            np.random.shuffle(coords)
+            coords = torch.tensor(coords, dtype=torch.float32)
+            return {'coords': coords}
+        else:
+            random_coords = self.float_tensor(self.batch_size, 3).uniform_()
+            random_coords[:, 0] = (
+                        random_coords[:, 0] * (self.coord_range[0, 1] - self.coord_range[0, 0]) + self.coord_range[0, 0])
+            random_coords[:, 1] = (
+                        random_coords[:, 1] * (self.coord_range[1, 1] - self.coord_range[1, 0]) + self.coord_range[1, 0])
+            random_coords[:, 2] = random_coords[:, 2] ** self.z_sampling_exponent
+            random_coords[:, 2] = (
+                        random_coords[:, 2] * (self.coord_range[2, 1] - self.coord_range[2, 0]) + self.coord_range[2, 0])
+            return {'coords': random_coords}

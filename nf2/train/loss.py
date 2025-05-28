@@ -392,6 +392,23 @@ class MinHeightLoss(BaseLoss):
         return min_height_regularization
 
 
+class CoulombGaugeLoss(BaseLoss):
+    """
+    Loss enforcing the Coulomb gauge condition: div(A) = 0,
+    where A is the vector potential (model output).
+    """
+    def forward(self, a, jac_matrix, *args, **kwargs):
+        # jac_matrix: shape (N, 3, 3) for dA_i/dx_j
+        # a: shape (N, 3) vector potential
+        # Compute divergence: dA_x/dx + dA_y/dy + dA_z/dz
+        dAx_dx = jac_matrix[:, 0, 0]
+        dAy_dy = jac_matrix[:, 1, 1]
+        dAz_dz = jac_matrix[:, 2, 2]
+        divergence = dAx_dx + dAy_dy + dAz_dz
+        loss = (divergence ** 2).mean()
+        return loss
+
+
 # mapping
 loss_module_mapping = {'boundary': BoundaryLoss, 'boundary_los_trv': LosTrvBoundaryLoss,
                        'boundary_azi': AziBoundaryLoss,
@@ -400,4 +417,4 @@ loss_module_mapping = {'boundary': BoundaryLoss, 'boundary_los_trv': LosTrvBound
                        'height': HeightLoss, 'NaNs': NaNLoss, 'radial': RadialLoss,
                        'min_height': MinHeightLoss, 'energy_gradient': EnergyGradientLoss, 'energy': EnergyLoss,
                        'magneto_static': MagnetoStaticLoss, 'implicit_magnetostatic': ImplicitMagnetoStaticLoss,
-                       'azimuth_disambiguation': AzimuthDisambiguationLoss}
+                       'azimuth_disambiguation': AzimuthDisambiguationLoss, 'coulomb_gauge': CoulombGaugeLoss}

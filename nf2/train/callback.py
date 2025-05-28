@@ -693,3 +693,68 @@ class MetricsCallback(Callback):
                              "force-free": ff_loss.cpu().numpy(),
                              "sigma_J": sigma_J.cpu().numpy(),
                              "theta_J": theta_J.cpu().numpy()}})
+
+class CurrentResampleCallback(Callback):
+    """
+    Callback to resample the current density map for current-biased sampling
+    at a user-defined interval, using the latest model prediction.
+    Computes the current density throughout the 3D volume for true 3D current-weighted sampling.
+    The grid resolution for current density can be set via current_resample_resolution (int or tuple/list of 3 ints).
+    """
+    def __init__(self, dataset, interval=1000, device='cpu', current_resample_resolution=None):
+        super().__init__()
+        self.dataset = dataset
+        self.interval = interval
+        self.device = device
+        self._step = 0
+        self.current_resample_resolution = current_resample_resolution
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        import torch
+        from nf2.train.model import jacobian, calculate_current_from_jacobian
+        self._step += 1
+        if self._step % self.interval == 0:
+            # 3D grid for current density map
+            coord_range = self.dataset.coord_range  # shape (3,2): [[xmin,xmax],[ymin,ymax],[zmin,zmax]]
+            lengths = [coord_range[i,1] - coord_range[i,0] for i in range(3)]
+            if self.current_resample_resolution is None:
+                base_N = 64
+            elif isinstance(self.current_resample_resolution, int):
+                base_N = self.current_resample_resolution
+            else:
+                shape = tuple(self.current_resample_resolution)
+                x = np.linspace(coord_range[0,0], coord_range[0,1], shape[0])
+                y = np.linspace(coord_range[1,0], coord_range[1,1], shape[1])
+                z = np.linspace(coord_range[2,0], coord_range[2,1], shape[2])
+                xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
+                coords = np.stack([xx, yy, zz], axis=-1).reshape(-1, 3)
+                coords_tensor = torch.tensor(coords, dtype=torch.float32, device=self.device, requires_grad=True)
+                with torch.no_grad():
+                    b_pred = pl_module(coords_tensor)
+                # Compute jacobian and current using autograd
+                jac_matrix = jacobian(b_pred, coords_tensor)
+                j = calculate_current_from_jacobian(jac_matrix)
+                current_density_map = torch.norm(j, dim=-1).reshape(shape).cpu().numpy()
+                if np.all(current_density_map == 0):
+                    current_density_map = np.ones_like(current_density_map)
+                self.dataset.current_density_map = current_density_map
+                self.dataset._update_prob_map()
+                print(f"[CurrentResampleCallback] Updated 3D current density map (autograd) at step {self._step}")
+                return
+            min_length = min(lengths)
+            shape = tuple([max(2, int(round(base_N * (l / min_length)))) for l in lengths])
+            x = np.linspace(coord_range[0,0], coord_range[0,1], shape[0])
+            y = np.linspace(coord_range[1,0], coord_range[1,1], shape[1])
+            z = np.linspace(coord_range[2,0], coord_range[2,1], shape[2])
+            xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
+            coords = np.stack([xx, yy, zz], axis=-1).reshape(-1, 3)
+            coords_tensor = torch.tensor(coords, dtype=torch.float32, device=self.device, requires_grad=True)
+            b_pred = pl_module(coords_tensor)
+            jac_matrix = jacobian(b_pred, coords_tensor)
+            j = calculate_current_from_jacobian(jac_matrix)
+            current_density_map = torch.norm(j, dim=-1).reshape(shape).cpu().numpy()
+            if np.all(current_density_map == 0):
+                current_density_map = np.ones_like(current_density_map)
+            self.dataset.current_density_map = current_density_map
+            self.dataset._update_prob_map()
+            print(f"[CurrentResampleCallback] Updated 3D current density map (autograd) at step {self._step}")
