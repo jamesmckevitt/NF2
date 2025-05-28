@@ -1,0 +1,43 @@
+base_path: "./base"
+work_directory: "./scratch"
+logging:
+  project: "dev"
+  name: "028"
+data:
+  type: fits
+  slices:
+    - Mm_per_pixel: 1
+      fits_path:
+        Br: "./br.fits"
+        Bt: "./bt.fits"
+        Bp: "./bp.fits"
+  random_config:
+    batch_size: 4096
+    current_biased_sampling: true
+    current_resample_interval: 100
+    bias_fraction: 0.5
+    current_resample_resolution: 64
+  num_workers: 8
+  iterations: 10000
+  z_range: [0, 152]
+  log_shape: True
+  G_per_dB: 2.5
+  model_kwargs:
+    encoding: none
+  batch_size: 1024
+model:
+  type: vector_potential
+  dim: 256
+  n_layers: 8
+  encoding: none
+training:
+  epochs: 15
+  loss_config:
+    - type: boundary
+      name: boundary
+      lambda: {start: 1000.0, end: 1.0, iterations: 50000}
+      ds_id: [boundary_01, potential]
+    - type: force_free
+      lambda: 0.1
+    - type: coulomb_gauge
+      lambda: 0.1
