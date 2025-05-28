@@ -766,7 +766,7 @@ class CurrentResampleCallback(Callback):
                 b_pred = pl_module(coords_chunk)
                 b_tensor = b_pred['b'] if isinstance(b_pred, dict) else b_pred
                 jac_matrix = jacobian(b_tensor, coords_chunk)
-                j_chunk = calculate_current_from_jacobian(jacobian(b_pred, coords_chunk))
+                j_chunk = calculate_current_from_jacobian(jac_matrix)
                 j_chunks.append(j_chunk.detach().cpu())
             j = torch.cat(j_chunks, dim=0)
             current_density_map = torch.norm(j, dim=-1).reshape(shape).cpu().numpy()
