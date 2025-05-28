@@ -710,10 +710,12 @@ class CurrentResampleCallback(Callback):
         self.current_resample_resolution = current_resample_resolution
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        print(f"[CurrentResampleCallback] on_train_batch_end called at step {self._step+1}")
         import torch
         from nf2.train.model import jacobian, calculate_current_from_jacobian
         self._step += 1
         if self._step % self.interval == 0:
+            print(f"[CurrentResampleCallback] Resampling current density map at step {self._step} (interval matched)")
             # 3D grid for current density map
             coord_range = self.dataset.coord_range  # shape (3,2): [[xmin,xmax],[ymin,ymax],[zmin,zmax]]
             lengths = [coord_range[i,1] - coord_range[i,0] for i in range(3)]
@@ -737,6 +739,7 @@ class CurrentResampleCallback(Callback):
                 current_density_map = torch.norm(j, dim=-1).reshape(shape).cpu().numpy()
                 if np.all(current_density_map == 0):
                     current_density_map = np.ones_like(current_density_map)
+                print(f"[CurrentResampleCallback] About to update dataset.current_density_map (custom shape branch)")
                 self.dataset.current_density_map = current_density_map
                 self.dataset._update_prob_map()
                 print(f"[CurrentResampleCallback] Updated 3D current density map (autograd) at step {self._step}")
@@ -751,10 +754,11 @@ class CurrentResampleCallback(Callback):
             coords_tensor = torch.tensor(coords, dtype=torch.float32, device=self.device, requires_grad=True)
             b_pred = pl_module(coords_tensor)
             jac_matrix = jacobian(b_pred, coords_tensor)
-            j = calculate_current_from_jacobian(jac_matrix)
+            j = calculate_current_from_jacobian(jacobian(b_pred, coords_tensor))
             current_density_map = torch.norm(j, dim=-1).reshape(shape).cpu().numpy()
             if np.all(current_density_map == 0):
                 current_density_map = np.ones_like(current_density_map)
+            print(f"[CurrentResampleCallback] About to update dataset.current_density_map (default shape branch)")
             self.dataset.current_density_map = current_density_map
             self.dataset._update_prob_map()
             print(f"[CurrentResampleCallback] Updated 3D current density map (autograd) at step {self._step}")
