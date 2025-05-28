@@ -712,6 +712,7 @@ class CurrentResampleCallback(Callback):
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         print(f"[CurrentResampleCallback] on_train_batch_end called at step {self._step+1}")
         import torch
+        import numpy as np
         from nf2.train.model import jacobian, calculate_current_from_jacobian
         self._step += 1
         if self._step % self.interval == 0:
@@ -719,6 +720,7 @@ class CurrentResampleCallback(Callback):
             # 3D grid for current density map
             coord_range = self.dataset.coord_range  # shape (3,2): [[xmin,xmax],[ymin,ymax],[zmin,zmax]]
             lengths = [coord_range[i,1] - coord_range[i,0] for i in range(3)]
+            chunk_size = 4096
             if self.current_resample_resolution is None:
                 base_N = 64
             elif isinstance(self.current_resample_resolution, int):
@@ -731,11 +733,16 @@ class CurrentResampleCallback(Callback):
                 xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
                 coords = np.stack([xx, yy, zz], axis=-1).reshape(-1, 3)
                 coords_tensor = torch.tensor(coords, dtype=torch.float32, device=self.device, requires_grad=True)
-                with torch.no_grad():
-                    b_pred = pl_module(coords_tensor)
-                # Compute jacobian and current using autograd
-                jac_matrix = jacobian(b_pred, coords_tensor)
-                j = calculate_current_from_jacobian(jac_matrix)
+                # --- Chunked processing ---
+                j_chunks = []
+                for i in range(0, coords_tensor.shape[0], chunk_size):
+                    coords_chunk = coords_tensor[i:i+chunk_size]
+                    coords_chunk.requires_grad = True
+                    b_pred = pl_module(coords_chunk)
+                    jac_matrix = jacobian(b_pred, coords_chunk)
+                    j_chunk = calculate_current_from_jacobian(jac_matrix)
+                    j_chunks.append(j_chunk.detach().cpu())
+                j = torch.cat(j_chunks, dim=0)
                 current_density_map = torch.norm(j, dim=-1).reshape(shape).cpu().numpy()
                 if np.all(current_density_map == 0):
                     current_density_map = np.ones_like(current_density_map)
@@ -752,9 +759,16 @@ class CurrentResampleCallback(Callback):
             xx, yy, zz = np.meshgrid(x, y, z, indexing='ij')
             coords = np.stack([xx, yy, zz], axis=-1).reshape(-1, 3)
             coords_tensor = torch.tensor(coords, dtype=torch.float32, device=self.device, requires_grad=True)
-            b_pred = pl_module(coords_tensor)
-            jac_matrix = jacobian(b_pred, coords_tensor)
-            j = calculate_current_from_jacobian(jacobian(b_pred, coords_tensor))
+            # --- Chunked processing ---
+            j_chunks = []
+            for i in range(0, coords_tensor.shape[0], chunk_size):
+                coords_chunk = coords_tensor[i:i+chunk_size]
+                coords_chunk.requires_grad = True
+                b_pred = pl_module(coords_chunk)
+                jac_matrix = jacobian(b_pred, coords_chunk)
+                j_chunk = calculate_current_from_jacobian(jac_matrix)
+                j_chunks.append(j_chunk.detach().cpu())
+            j = torch.cat(j_chunks, dim=0)
             current_density_map = torch.norm(j, dim=-1).reshape(shape).cpu().numpy()
             if np.all(current_density_map == 0):
                 current_density_map = np.ones_like(current_density_map)
