@@ -36,8 +36,21 @@ class FITSDataModule(BaseDataModule):
         z_range = [0, 100] if z_range is None else z_range
         z_range_arr = np.array([z_range]) / Mm_per_ds
         coord_range = np.concatenate([coord_range, z_range_arr], axis=0)
+        
+        # Debug random_config flow
+        print(f"[DEBUG] FITSDataModule.__init__ received random_config: {random_config}")
         random_config = random_config if random_config is not None else {}
+        print(f"[DEBUG] FITSDataModule.__init__ processed random_config: {random_config}")
+        print(f"[DEBUG] Creating RandomCoordinateDataset with coord_range: {coord_range}")
+        print(f"[DEBUG] RandomCoordinateDataset kwargs: {random_config}")
+        
         random_dataset = RandomCoordinateDataset(coord_range, **random_config)
+        
+        # Verify the attributes were set correctly
+        print(f"[DEBUG] RandomCoordinateDataset created with:")
+        print(f"  - current_biased_sampling: {getattr(random_dataset, 'current_biased_sampling', 'NOT_SET')}")
+        print(f"  - current_resample_interval: {getattr(random_dataset, 'current_resample_interval', 'NOT_SET')}")
+        print(f"  - bias_fraction: {getattr(random_dataset, 'bias_fraction', 'NOT_SET')}")
 
         ds_per_pixel = bottom_boundary_dataset.ds_per_pixel
 
